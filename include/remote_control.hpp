@@ -38,6 +38,10 @@
 
 #include <esp_heap_caps.h>
 #include <esp_app_desc.h>
+#if __has_include("statistics.hpp")
+#include "statistics.hpp" // get_fps(): the game's frame rate for the status
+#define EMULINK_HAS_FPS 1
+#endif
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
@@ -795,13 +799,18 @@ protected:
     const auto *app = esp_app_get_description();
     const auto *running = esp_ota_get_running_partition();
     return fmt::format("{{\"state\":\"{}\",\"rom\":{},\"platform\":\"{}\",\"console\":{},\"game_frames\":{},"
-                       "\"frames_presented\":{},\"frames_dropped\":{},\"usb_drive\":{},"
+                       "\"frames_presented\":{},\"frames_dropped\":{},\"fps\":{:.1f},\"usb_drive\":{},"
                        "\"uptime_ms\":{},\"internal_free\":{},\"internal_largest\":{},\"internal_min_free\":{},"
                        "\"psram_free\":{},\"psram_largest\":{},\"psram_min_free\":{},\"dma_free\":{},"
                        "\"dma_largest\":{},\"firmware\":{},\"built\":{},"
                        "\"partition\":{},\"elf_sha256\":{},\"reset_reason\":{},\"last_panic\":{},\"filter\":{}}}",
                        in_game ? "game" : "menu", quote(rom), platform, quote(console), frames,
                        BoxEmu::get().frames_blitted(), BoxEmu::get().frames_dropped(),
+#if defined(EMULINK_HAS_FPS)
+                       in_game ? get_fps() : 0.0f,
+#else
+                       0.0f,
+#endif
                        BoxEmu::get().usb_msc_host_has_card(), esp_timer_get_time() / 1000,
                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
