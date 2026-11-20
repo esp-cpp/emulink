@@ -35,8 +35,11 @@ DevLink::DevLink(const Config &config) {
 #endif
           },
       // ~3.5 KB used at the high-water mark (file transfers, core dump reads);
-      // internal RAM, since the core dump service reads the flash
-      .task_config = {.name = "devlink", .stack_size_bytes = 6144},
+      // internal RAM, since the core dump service reads the flash. Priority
+      // 5, as TinyUSB's task: at 0 (the default, the idle tasks' level) it
+      // ran only when both cores had nothing else to do, so a game that keeps
+      // them busy (SNES on the Tab5) left requests unanswered for 15-35 s
+      .task_config = {.name = "devlink", .stack_size_bytes = 6144, .priority = 5},
   });
   core_dump_service_ = std::make_unique<espp::CoreDumpService>(core_dump_, espp::CoreDumpService::Config{
                                                                                .send = &DevLink::send,
