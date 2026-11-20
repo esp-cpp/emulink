@@ -38,10 +38,6 @@
 
 #include <esp_heap_caps.h>
 #include <esp_app_desc.h>
-#if __has_include("statistics.hpp")
-#include "statistics.hpp" // get_fps(): the game's frame rate for the status
-#define EMULINK_HAS_FPS 1
-#endif
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
@@ -193,6 +189,7 @@ public:
   void set_cart(Cart *cart) {
     std::lock_guard<std::mutex> lk(state_mutex_);
     cart_ = cart;
+    carts_set_++; // (status()'s fps window starts over)
     // what the game reads while it runs (see in_use_by_game())
     game_rom_ = cart ? normal_path(cart->rom_info().rom_path) : std::string();
     game_folder_ = cart && cart->uses_rom_folder()
@@ -785,6 +782,8 @@ protected:
     std::string rom, platform, console;
     bool in_game = false;
     uint32_t frames = 0;
+    float fps = 0.0f;
+    const uint32_t shown = BoxEmu::get().frames_blitted();
     {
       std::lock_guard<std::mutex> lk(state_mutex_);
       if (cart_) {
@@ -795,6 +794,22 @@ protected:
         console = console_info(console_of(info.platform)).name;
         frames = cart_->game_frames();
       }
+      // fps: the frames shown per second, over at least a second (whoever
+      // asks how often), restarted for each game. Not get_fps(), the cores'
+      // frame statistic, which counts busy time only (and on the Tab5 the
+      // video task's blits as well): it reads 100+ for a game at 60 Hz.
+      const int64_t now = esp_timer_get_time();
+      if (carts_set_ != fps_game_) {
+        fps_game_ = carts_set_;
+        fps_frames_ = shown;
+        fps_since_us_ = now;
+        fps_ = 0.0f;
+      } else if (now - fps_since_us_ >= 1'000'000) {
+        fps_ = (shown - fps_frames_) * 1e6f / static_cast<float>(now - fps_since_us_);
+        fps_frames_ = shown;
+        fps_since_us_ = now;
+      }
+      fps = in_game ? fps_ : 0.0f;
     }
     const auto *app = esp_app_get_description();
     const auto *running = esp_ota_get_running_partition();
@@ -805,12 +820,7 @@ protected:
                        "\"dma_largest\":{},\"firmware\":{},\"built\":{},"
                        "\"partition\":{},\"elf_sha256\":{},\"reset_reason\":{},\"last_panic\":{},\"filter\":{}}}",
                        in_game ? "game" : "menu", quote(rom), platform, quote(console), frames,
-                       BoxEmu::get().frames_blitted(), BoxEmu::get().frames_dropped(),
-#if defined(EMULINK_HAS_FPS)
-                       in_game ? get_fps() : 0.0f,
-#else
-                       0.0f,
-#endif
+                       shown, BoxEmu::get().frames_dropped(), fps,
                        BoxEmu::get().usb_msc_host_has_card(), esp_timer_get_time() / 1000,
                        heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
@@ -945,6 +955,12 @@ protected:
   Gui &gui_;
   MainQueue &main_;
   std::mutex state_mutex_;
+  // status()'s fps window (state_mutex_)
+  uint32_t carts_set_ = 0; // set_cart() calls
+  uint32_t fps_game_ = 0;
+  uint32_t fps_frames_ = 0;
+  int64_t fps_since_us_ = 0;
+  float fps_ = 0.0f;
   Cart *cart_{nullptr};
   std::string game_rom_;    ///< the running game's ROM (normal_path())
   std::string game_folder_; ///< the folder it reads as it runs, if any
