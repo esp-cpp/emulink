@@ -36,10 +36,13 @@ DevLink::DevLink(const Config &config) {
           },
       // ~3.5 KB used at the high-water mark (file transfers, core dump reads);
       // internal RAM, since the core dump service reads the flash. Priority
-      // 5, as TinyUSB's task: at 0 (the default, the idle tasks' level) it
-      // ran only when both cores had nothing else to do, so a game that keeps
-      // them busy (SNES on the Tab5) left requests unanswered for 15-35 s
-      .task_config = {.name = "devlink", .stack_size_bytes = 6144, .priority = 5},
+      // 5 on core 1, as TinyUSB's task: at 0 (the default, the idle tasks'
+      // level) and unpinned it ran only when both cores had nothing else to
+      // do, so a game that keeps them busy (SNES on the Tab5) left requests
+      // unanswered for 15-35 s; unpinned at 5 it took core 0 from Metal Gear
+      // Solid's threads (also 5, on core 0). The games' own tasks run on core
+      // 0; core 1 has the display and audio tasks, which mostly wait.
+      .task_config = {.name = "devlink", .stack_size_bytes = 6144, .priority = 5, .core_id = 1},
   });
   core_dump_service_ = std::make_unique<espp::CoreDumpService>(core_dump_, espp::CoreDumpService::Config{
                                                                                .send = &DevLink::send,
